@@ -1,0 +1,285 @@
+% *******************Drucker Prager 2D******************%
+% ****************** With hardening *********************%
+
+%  Single element model
+%  Normally consolidated sand
+%  Drained Biaxial compression
+
+% Forward Euler method; without substepping 
+% Jaccorbian calculated based on the current stress t
+% yield check on current stress
+
+%%%%%%%%%%%%%%%%Modifications%%%%%%%%%%%%%%%%%%%%%%%%
+%stress and strain inavariants
+%update of cumulative deviatoric plastic strain
+%Kp and B based on modulus of effective df_dsig
+% Linearised increse of Mu, Mu = Mu + dmu
+
+iteration = 10000;
+P_initial = 100;
+dEps1 = 0.00001;
+e_initial = 0.55;
+K0 = 1;
+
+% Storing output variables
+P = zeros(iteration,1);
+Q = zeros(iteration,1);
+e = zeros(iteration,1);
+
+
+Mu = zeros(iteration,1);
+Eps1 = zeros(iteration,1);
+Epsv = zeros(iteration,1);
+Epsd = zeros(iteration,1);
+STRAN_P_vol = zeros(iteration,1);
+STRAN_P_dev = zeros(iteration,1);
+deriv_f_Mu = zeros(iteration,1);
+
+S22 = zeros(iteration,1);
+S11 = zeros(iteration,1);
+S12 = zeros(iteration,1);
+S33 = zeros(iteration,1);
+STRAN_P11 = zeros(iteration,1);
+Kp = zeros(iteration,1);
+dlamda = zeros(iteration,1);
+dmu = zeros(iteration,1);
+check1 = zeros(iteration,1);
+check2 = zeros(iteration,1);
+
+YIELD = zeros(iteration,1);
+YIELD_trial = zeros(iteration,1);
+Kp = zeros(iteration,1);
+
+
+%  Defining zero matrices
+
+S = zeros(4,1);
+STRESS = zeros(4,1);
+STRESS_trial = zeros(4,1);
+STRAN = zeros(4,1);
+STRAN_P = zeros(4,1);
+DSTRAN_P = zeros(4,1);
+
+dEps = zeros(4,1);
+subdEps = zeros(4,1);
+
+DF_DSIG = zeros(4,1);
+DP_DSIG = zeros(4,1);
+DQ_DSIG = zeros(4,1);
+DE = zeros(4,4);
+DP = zeros(4,4);
+DEP = zeros(4,4);
+TERM1 = zeros(4,4);
+
+DSTRESS = zeros(4,1);
+DSTRESS_P = zeros(4,1);
+DSTRESS_E = zeros(4,1);
+
+
+%*******Initialization**************%
+
+    % Initial index
+    a = 1;
+    
+    % Initial stress
+
+    STRESS(1,1) = P_initial + 0.0001; % avoid dividing by zero
+    STRESS(2,1) = K0*P_initial;
+    STRESS(3,1) = K0*P_initial;
+
+  % Calculate initil parameters
+      
+	[P(1,1),Q(1,1),S] = PQ(STRESS);
+    [G,BULK,DE] = DELASTIC(P(1,1));
+    STRAN_P = 0;
+    STRAN_P_d = 0;
+    Mu(1,1) = HARD(STRAN_P_d);
+    YIELD(1,1) = Q(1,1)-Mu(1,1)*P(1,1);
+   
+    % Calculation of elastic predictor
+       
+        dEps =  [  dEps1;
+	-DE(2,1)*dEps1/(DE(2,2));
+	0;
+	0];
+    
+	while a < iteration      
+       
+      %  Calculate the yield function based on the initial stress
+	   YIELD(a,1) = Q(a,1)-Mu(a,1)*P(a,1);   
+	
+	  if YIELD(a,1) <= -0.00001
+        
+       % Calculation of Jacoorbian
+	   DEP = DE ;
+       
+       % Calculate stress increment
+       DSTRESS = DEP * dEps;
+       
+      %  Update stress and strain  
+	   STRESS = STRESS + DSTRESS;
+	   STRAN = STRAN + dEps;
+       DMu = 0;
+       
+	end 
+	
+	if YIELD(a,1) > -0.00001
+    
+   % Calculation of Jacoorbian
+    [DF_DSIG,M_EF_DF_DSIG,DEP,DMu_Deffp,Kp(a,1),TERM1,TERM2,DP] = DELASTOPLASTIC(P(a,1),Q(a,1),S,DE,Mu(a,1),STRAN_P_d);
+    deriv_f_Mu(a,1) = DMu_Deffp;
+    
+     % Calculation of dlamda   
+    dlamda(a,1) = DF_DSIG'*DE*dEps/(DF_DSIG'*DE*DF_DSIG + Kp(a,1));
+    check1(a,1) = DF_DSIG'*DE*dEps;
+    check2(a,1) = DF_DSIG'*DE*DF_DSIG;
+    % Calculation of dmu    
+    B = (1/sqrt(2))*DMu_Deffp*M_EF_DF_DSIG;
+    dmu(a,1) = dlamda(a,1)*B; 
+    
+     % Calculation of stress increment
+     
+    DSTRESS = DEP*dEps;
+        
+     %*********** Update stress, strain and other variables *******%
+        
+	%  Update stress and strain
+    
+	STRESS = STRESS + DSTRESS;
+	STRAN = STRAN + dEps;
+    
+    % Calculate incremental plastic strain
+    DSTRAN_P =  dlamda(a,1)*DF_DSIG;
+    
+    % Calculate deviatoric incremental plastic strain 
+ 
+    [DSTRAN_P_v,DSTRAN_P_d] = STRAIN_inv(DSTRAN_P);
+    STRAN_P_d = STRAN_P_d + DSTRAN_P_d;
+    STRAN_P_dev(a,1) = STRAN_P_d;
+    
+      end
+       
+  
+     a = a +1;
+   
+    Eps1(a,1) = Eps1(a-1,1) + dEps1;
+	
+        
+	[P(a,1),Q(a,1),S] = PQ(STRESS);
+    Mu(a,1) = Mu(a-1,1)+ dmu(a-1,1);
+    YIELD(a,1) = Q(a,1)-Mu(a,1)*P(a,1);
+    
+    % Calculate elastic stiffness matrix
+	[G,BULK,DE] = DELASTIC(P(a,1));
+    
+    dEps =  [  dEps1;
+	-DEP(2,1)*dEps1/(DEP(2,2));
+	0;
+	0];
+      
+       % storing stress result
+  
+          S11(a,1) = STRESS(1,1);
+          S22(a,1) = STRESS(2,1);
+          S33(a,1) = STRESS(3,1);
+          S12(a,1) = STRESS(4,1);
+          
+          Eps11(a,1) = STRAN(1,1);
+          Eps22(a,1) = STRAN(2,1);
+          
+    
+	end
+  
+ 
+ % plot results
+ 
+ figure1 = figure('Name', '3D Triaxial Compression')
+ 
+ subplot(2,3,1,'parent',figure1)
+ plot(P,Q)
+ title('P vs Q')
+ xlabel('P') % x-axis label
+ ylabel('Q') % y-axis label
+ 
+ subplot(2,3,2,'parent',figure1)
+ plot(Eps1,S11)
+ title('Eps1 vs S11')
+ xlabel('Eps1') % x-axis label
+ ylabel('S11') % y-axis label
+ 
+ subplot(2,3,3,'parent',figure1)
+ plot(Eps1,S22)
+ title('Eps1 vs S22')
+ xlabel('Eps1') % x-axis label
+ ylabel('S22') % y-axis label
+ 
+ subplot(2,3,4,'parent',figure1)
+ plot(Eps1,Q)
+ title('Eps1 vs Q')
+ xlabel('Eps1') % x-axis label
+ ylabel('Q') % y-axis label
+ 
+ subplot(2,3,5,'parent',figure1)
+ plot(Eps1,P)
+ title('Eps1 vs P')
+ xlabel('Eps1') % x-axis label
+ ylabel('P') % y-axis label
+ 
+ subplot(2,3,6,'parent',figure1)
+ plot(Eps1,STRAN_P_dev)
+ title('Eps1 vs STRAN_P_d')
+ xlabel('Eps1') % x-axis label
+ ylabel('STRAN_P_d') % y-axis label
+ 
+ figure2 = figure('Name', '3D Triaxial Compression')
+ 
+ subplot(2,3,1,'parent',figure2)
+ plot(Eps1,Mu)
+ title('Eps1 vs Mu')
+ xlabel('Eps1') % x-axis label
+ ylabel('Mu') % y-axis label
+ 
+ subplot(2,3,2,'parent',figure2)
+ plot(Eps1,dlamda)
+ title('Eps1 vs dlamda')
+ xlabel('Eps1') % x-axis label
+ ylabel('dlamda') % y-axis label
+ 
+ subplot(2,3,3,'parent',figure2)
+ plot(Eps1,dmu)
+ title('Eps1 vs dmu')
+ xlabel('Eps1') % x-axis label
+ ylabel('dmu') % y-axis label
+ 
+ subplot(2,3,4,'parent',figure2)
+ plot(Eps1,deriv_f_Mu)
+ title('Eps1 vs deriv_f_Mu')
+ xlabel('Eps1') % x-axis label
+ ylabel('deriv_f_Mu') % y-axis label
+ 
+ subplot(2,3,5,'parent',figure2)
+ plot(Eps1,Kp)
+ title('Eps1 vs Kp')
+ xlabel('Eps1') % x-axis label
+ ylabel('Kp') % y-axis label
+ 
+ subplot(2,3,6,'parent',figure2)
+ plot(Eps1,YIELD)
+ title('Eps1 vs YIELD')
+ xlabel('Eps1') % x-axis label
+ ylabel('YIELD') % y-axis label
+ 
+ figure3 = figure('Name', '3D Triaxial Compression')
+ 
+ subplot(2,3,1,'parent',figure3)
+ plot(Eps1,check1)
+ title('Eps1 vs check1')
+ xlabel('Eps1') % x-axis label
+ ylabel('check1') % y-axis label
+ 
+ subplot(2,3,2,'parent',figure3)
+ plot(Eps1,check2)
+ title('Eps1 vs check2')
+ xlabel('Eps1') % x-axis label
+ ylabel('check2') % y-axis label
+	

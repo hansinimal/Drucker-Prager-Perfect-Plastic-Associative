@@ -1,4 +1,4 @@
-"# Drucker Prager-model" 
+"# DruckerP-model" 
 % ****************** Drucker Prager 2D ******************%
 % ****************** With hardening *********************%
 
